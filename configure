@@ -185,6 +185,7 @@ Individual component options:
   --enable-filter=NAME     enable filter NAME
   --disable-filter=NAME    disable filter NAME
   --disable-filters        disable all filters
+  --disable-v4l2_m2m       disable V4L2 mem2mem code [autodetect]
 
 External library support:
 
@@ -1602,6 +1603,7 @@ HWACCEL_AUTODETECT_LIBRARY_LIST="
     vda
     vdpau
     videotoolbox_hwaccel
+    v4l2_m2m
     xvmc
 "
 
@@ -2602,7 +2604,6 @@ vdpau_deps="vdpau_vdpau_h vdpau_vdpau_x11_h"
 videotoolbox_hwaccel_deps="videotoolbox pthreads"
 videotoolbox_hwaccel_extralibs="-framework QuartzCore"
 xvmc_deps="X11_extensions_XvMClib_h"
-
 h263_vaapi_hwaccel_deps="vaapi"
 h263_vaapi_hwaccel_select="h263_decoder"
 h263_videotoolbox_hwaccel_deps="videotoolbox"
@@ -2752,6 +2753,7 @@ omx_extralibs='$ldl'
 qsvdec_select="qsv"
 qsvenc_select="qsv"
 vaapi_encode_deps="vaapi"
+v4l2_m2m_deps_any="linux_videodev2_h"
 
 hwupload_cuda_filter_deps="cuda"
 scale_npp_filter_deps="cuda libnpp"
@@ -2759,6 +2761,22 @@ scale_npp_filter_deps="cuda libnpp"
 nvenc_deps="cuda"
 nvenc_deps_any="dlopen LoadLibrary"
 nvenc_encoder_deps="nvenc"
+
+h264_v4l2m2m_decoder_deps="v4l2_m2m h264_v4l2_m2m"
+h264_v4l2m2m_encoder_deps="v4l2_m2m h264_v4l2_m2m"
+h263_v4l2m2m_decoder_deps="v4l2_m2m h263_v4l2_m2m"
+h263_v4l2m2m_encoder_deps="v4l2_m2m h263_v4l2_m2m"
+hevc_v4l2m2m_decoder_deps="v4l2_m2m hevc_v4l2_m2m"
+hevc_v4l2m2m_encoder_deps="v4l2_m2m hevc_v4l2_m2m"
+mpeg1_v4l2m2m_decoder_deps="v4l2_m2m mpeg1_v4l2_m2m"
+mpeg2_v4l2m2m_decoder_deps="v4l2_m2m mpeg2_v4l2_m2m"
+mpeg4_v4l2m2m_decoder_deps="v4l2_m2m mpeg4_v4l2_m2m"
+mpeg4_v4l2m2m_encoder_deps="v4l2_m2m mpeg4_v4l2_m2m"
+vc1_v4l2m2m_decoder_deps="v4l2_m2m vc1_v4l2_m2m"
+vp8_v4l2m2m_decoder_deps="v4l2_m2m vp8_v4l2_m2m"
+vp8_v4l2m2m_encoder_deps="v4l2_m2m vp8_v4l2_m2m"
+vp9_v4l2m2m_decoder_deps="v4l2_m2m vp9_v4l2_m2m"
+
 h264_cuvid_decoder_deps="cuda cuvid"
 h264_cuvid_decoder_select="h264_mp4toannexb_bsf"
 h264_nvenc_encoder_deps="nvenc"
@@ -3548,7 +3566,7 @@ done
 enable_weak audiotoolbox
 
 # Enable hwaccels by default.
-enable_weak d3d11va dxva2 vaapi vda vdpau videotoolbox_hwaccel xvmc
+enable_weak d3d11va dxva2 vaapi vda vdpau videotoolbox_hwaccel xvmc v4l2_m2m
 enable_weak xlib
 
 enable_weak cuda cuvid nvenc vda_framework videotoolbox videotoolbox_encoder
@@ -5988,8 +6006,20 @@ check_header linux/videodev.h
 check_header linux/videodev2.h
 check_code cc linux/videodev2.h "struct v4l2_frmsizeenum vfse; vfse.discrete.width = 0;" && enable_safe struct_v4l2_frmivalenum_discrete
 
+# check V4L2 codecs available in the API
 check_header sys/videoio.h
+check_header linux/videodev2.h
 check_code cc sys/videoio.h "struct v4l2_frmsizeenum vfse; vfse.discrete.width = 0;" && enable_safe struct_v4l2_frmivalenum_discrete
+check_code cc linux/videodev2.h "int i = V4L2_CAP_VIDEO_M2M_MPLANE | V4L2_CAP_VIDEO_M2M | V4L2_BUF_FLAG_LAST;" || disable v4l2_m2m
+check_code cc linux/videodev2.h "int i = V4L2_PIX_FMT_VC1_ANNEX_G;" && enable vc1_v4l2_m2m
+check_code cc linux/videodev2.h "int i = V4L2_PIX_FMT_MPEG1;" && enable mpeg1_v4l2_m2m
+check_code cc linux/videodev2.h "int i = V4L2_PIX_FMT_MPEG2;" && enable mpeg2_v4l2_m2m
+check_code cc linux/videodev2.h "int i = V4L2_PIX_FMT_MPEG4;" && enable mpeg4_v4l2_m2m
+check_code cc linux/videodev2.h "int i = V4L2_PIX_FMT_HEVC;" && enable hevc_v4l2_m2m
+check_code cc linux/videodev2.h "int i = V4L2_PIX_FMT_H263;" && enable h263_v4l2_m2m
+check_code cc linux/videodev2.h "int i = V4L2_PIX_FMT_H264;" && enable h264_v4l2_m2m
+check_code cc linux/videodev2.h "int i = V4L2_PIX_FMT_VP8;" && enable vp8_v4l2_m2m
+check_code cc linux/videodev2.h "int i = V4L2_PIX_FMT_VP9;" && enable vp9_v4l2_m2m
 
 check_func_headers "windows.h vfw.h" capCreateCaptureWindow "$vfwcap_indev_extralibs"
 # check that WM_CAP_DRIVER_CONNECT is defined to the proper value
