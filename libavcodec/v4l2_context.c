@@ -237,17 +237,15 @@ static V4L2Buffer* v4l2_dequeue_v4l2buf(V4L2Context *ctx, int timeout)
     if (V4L2_TYPE_IS_OUTPUT(ctx->type))
         pfd.events =  POLLOUT | POLLWRNORM;
 
+    if (!V4L2_TYPE_IS_OUTPUT(ctx->type) && ctx_to_m2mctx(ctx)->draining)
+        pfd.events =  POLLIN | POLLRDNORM | POLLPRI;
+
     for (;;) {
         ret = poll(&pfd, 1, timeout);
         if (ret > 0)
             break;
         if (errno == EINTR)
             continue;
-
-        /* timeout is being used to indicate last valid bufer when draining */
-        if (ctx_to_m2mctx(ctx)->draining)
-            ctx->done = 1;
-
         return NULL;
     }
 
@@ -535,7 +533,7 @@ int ff_v4l2_context_dequeue_frame(V4L2Context* ctx, AVFrame* frame)
      *  1. decoded frame available
      *  2. an input buffer is ready to be dequeued
      */
-    avbuf = v4l2_dequeue_v4l2buf(ctx, ctx_to_m2mctx(ctx)->draining ? 200 : -1);
+    avbuf = v4l2_dequeue_v4l2buf(ctx, -1);
     if (!avbuf) {
         if (ctx->done)
             return AVERROR_EOF;
@@ -557,7 +555,7 @@ int ff_v4l2_context_dequeue_packet(V4L2Context* ctx, AVPacket* pkt)
      *  1. encoded packet available
      *  2. an input buffer ready to be dequeued
      */
-    avbuf = v4l2_dequeue_v4l2buf(ctx, ctx_to_m2mctx(ctx)->draining ? 200 : -1);
+    avbuf = v4l2_dequeue_v4l2buf(ctx, -1);
     if (!avbuf) {
         if (ctx->done)
             return AVERROR_EOF;
