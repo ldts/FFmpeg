@@ -92,6 +92,8 @@ static inline int v4l2_type_supported(V4L2Context *ctx)
 
 static inline void v4l2_save_to_context(V4L2Context* ctx, struct v4l2_format_update *fmt)
 {
+    const int MAX_SIZEIMAGE = 2 * 1024 * 1024;
+
     ctx->format.type = ctx->type;
 
     if (fmt->update_avfmt)
@@ -101,13 +103,21 @@ static inline void v4l2_save_to_context(V4L2Context* ctx, struct v4l2_format_upd
         /* update the sizes to handle the reconfiguration of the capture stream at runtime */
         ctx->format.fmt.pix_mp.height = ctx->height;
         ctx->format.fmt.pix_mp.width = ctx->width;
-        if (fmt->update_v4l2)
+        if (fmt->update_v4l2) {
             ctx->format.fmt.pix_mp.pixelformat = fmt->v4l2_fmt;
+
+            /* s5p-mfc requires the user to specify MAX buffer size */
+            ctx->format.fmt.pix_mp.plane_fmt[0].sizeimage = MAX_SIZEIMAGE;
+        }
     } else {
         ctx->format.fmt.pix.height = ctx->height;
         ctx->format.fmt.pix.width = ctx->width;
-        if (fmt->update_v4l2)
+        if (fmt->update_v4l2) {
             ctx->format.fmt.pix.pixelformat = fmt->v4l2_fmt;
+
+            /* s5p-mfc requires the user to specify MAX buffer size */
+            ctx->format.fmt.pix.sizeimage = MAX_SIZEIMAGE;
+        }
     }
 }
 
