@@ -219,8 +219,17 @@ static void v4l2_free_buffer(void *opaque, uint8_t *unused)
         return;
     }
 
-    if (!atomic_load(&s->refcount))
-        ff_v4l2_m2m_codec_end(s->avctx);
+    if (!atomic_load(&s->refcount)) {
+
+        ff_v4l2_context_release(&s->capture);
+        sem_destroy(&s->refsync);
+
+        /* release the hardware */
+        if (close(s->fd) < 0 )
+            av_log(s->avctx, AV_LOG_ERROR, "failure closing %s (%s)\n", s->devname, av_err2str(AVERROR(errno)));
+
+        s->fd = -1;
+    }
 }
 
 static int v4l2_buf_to_bufref(V4L2Buffer *in, int plane, AVBufferRef **buf)

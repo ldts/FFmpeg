@@ -321,6 +321,9 @@ int ff_v4l2_m2m_codec_end(AVCodecContext *avctx)
     V4L2m2mContext* s = avctx->priv_data;
     int ret;
 
+    if (s->fd < 0)
+        return 0;
+
     ret = ff_v4l2_context_set_status(&s->output, VIDIOC_STREAMOFF);
     if (ret)
             av_log(avctx, AV_LOG_ERROR, "VIDIOC_STREAMOFF %s\n", s->output.name);
@@ -331,8 +334,10 @@ int ff_v4l2_m2m_codec_end(AVCodecContext *avctx)
 
     ff_v4l2_context_release(&s->output);
 
-    if (atomic_load(&s->refcount))
-        av_log(avctx, AV_LOG_ERROR, "ff_v4l2m2m_codec_end leaving pending buffers\n");
+    if (atomic_load(&s->refcount)) {
+        av_log(avctx, AV_LOG_DEBUG, "ff_v4l2m2m_codec_end leaving pending buffers\n");
+        return 0;
+    }
 
     ff_v4l2_context_release(&s->capture);
     sem_destroy(&s->refsync);
