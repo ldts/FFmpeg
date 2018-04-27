@@ -31,7 +31,6 @@
 #include "libavcodec/avcodec.h"
 #include "libavcodec/internal.h"
 #include "libavutil/hwcontext.h"
-#include "libavutil/hwcontext_drm.h"
 #include "v4l2_context.h"
 #include "v4l2_buffers.h"
 #include "v4l2_m2m.h"
@@ -208,7 +207,6 @@ static enum AVColorTransferCharacteristic v4l2_get_color_trc(V4L2Buffer *buf)
 
 static void v4l2_free_buffer(void *opaque, uint8_t *data)
 {
-    AVDRMFrameDescriptor *desc = (AVDRMFrameDescriptor *)data;
     V4L2Buffer* avbuf = opaque;
     V4L2m2mContext *s = buf_to_m2mctx(avbuf);
 
@@ -229,8 +227,6 @@ static void v4l2_free_buffer(void *opaque, uint8_t *data)
 
         av_buffer_unref(&avbuf->context_ref);
     }
-
-    av_free(desc);
 }
 
 static int v4l2_buf_to_bufref(V4L2Buffer *in, int plane, AVBufferRef **buf)
@@ -286,6 +282,32 @@ static int v4l2_bufref_to_buf(V4L2Buffer *out, int plane, const uint8_t* data, i
     return 0;
 }
 
+static int v4l2_buffer_export(V4L2Buffer* avbuf)
+{
+    int i, ret;
+
+    for (i = 0; i < avbuf->num_planes; i++) {
+
+        struct v4l2_exportbuffer expbuf;
+        memset(&expbuf, 0, sizeof(expbuf));
+        expbuf.type = avbuf->buf.type;
+        expbuf.index = avbuf->buf.index;
+        expbuf.plane = i;
+
+        ret = ioctl(buf_to_m2mctx(avbuf)->fd, VIDIOC_EXPBUF, &expbuf);
+        if (ret < 0)
+            return AVERROR(errno);
+
+        if (V4L2_TYPE_IS_MULTIPLANAR(avbuf->buf.type))
+            avbuf->buf.m.planes[i].m.fd = expbuf.fd;
+        else
+            avbuf->buf.m.fd = expbuf.fd;
+    }
+
+    return 0;
+}
+
+
 /******************************************************************************
  *
  *              V4L2uffer interface
@@ -310,9 +332,8 @@ int ff_v4l2_buffer_avframe_to_buf(const AVFrame *frame, V4L2Buffer* out)
 int ff_v4l2_buffer_buf_to_avframe(AVFrame *frame, V4L2Buffer *avbuf)
 {
     V4L2m2mContext *s = buf_to_m2mctx(avbuf);
-    AVDRMFrameDescriptor *desc = NULL;
+    AVDRMFrameDescriptor *drm_desc = &avbuf->drm_frame;
     AVDRMLayerDescriptor *layer = NULL;
-    int ret;
 
     av_frame_unref(frame);
 
@@ -329,29 +350,10 @@ int ff_v4l2_buffer_buf_to_avframe(AVFrame *frame, V4L2Buffer *avbuf)
     frame->height = s->output.height;
     frame->width = s->output.width;
 
-    ret = ff_v4l2_buffer_export(avbuf);
-    if (ret < 0) {
-        return AVERROR(errno);
-    }
-
-    desc = av_mallocz(sizeof(AVDRMFrameDescriptor));
-    if (!desc) {
-        return AVERROR(ENOMEM);
-    }
-
-    desc->nb_objects = 1;
-
-    if (V4L2_TYPE_IS_MULTIPLANAR(avbuf->buf.type)) {
-        desc->objects[0].fd = avbuf->buf.m.planes[0].m.fd;
-        desc->objects[0].size = avbuf->buf.m.planes[0].length;
-    } else {
-        desc->objects[0].fd = avbuf->buf.m.fd;
-        desc->objects[0].size = avbuf->buf.length;
-    }
-
-    desc->nb_layers = 1;
-    layer = &desc->layers[0];
-
+    /* fill the DRM frame descriptor */
+    drm_desc->nb_objects = 1;
+    drm_desc->nb_layers = 1;
+    layer = &drm_desc->layers[0];
     layer->planes[0].object_index = 0;
     layer->planes[0].offset = 0;
     layer->planes[0].pitch = avbuf->plane_info[0].bytesperline;
@@ -392,8 +394,9 @@ int ff_v4l2_buffer_buf_to_avframe(AVFrame *frame, V4L2Buffer *avbuf)
         break;
     }
 
-    frame->data[0] = (uint8_t *)desc;
-    frame->buf[0] = av_buffer_create((uint8_t *)desc, sizeof(*desc), v4l2_free_buffer, avbuf, AV_BUFFER_FLAG_READONLY);
+    frame->data[0] = (uint8_t *) drm_desc;
+    frame->buf[0] = av_buffer_create((uint8_t *) drm_desc, sizeof(*drm_desc),
+	    v4l2_free_buffer, avbuf, AV_BUFFER_FLAG_READONLY);
 
     if (!frame->buf[0])
         return AVERROR(ENOMEM);
@@ -516,8 +519,10 @@ int ff_v4l2_buffer_initialize(V4L2Buffer* avbuf, int index)
 
     avbuf->status = V4L2BUF_AVAILABLE;
 
-    if (V4L2_TYPE_IS_OUTPUT(ctx->type))
+    if (V4L2_TYPE_IS_OUTPUT(ctx->type)) {
+	avbuf->drm_frame.objects[0].fd = -1;
         return 0;
+    }
 
     if (V4L2_TYPE_IS_MULTIPLANAR(ctx->type)) {
         avbuf->buf.m.planes = avbuf->planes;
@@ -526,6 +531,18 @@ int ff_v4l2_buffer_initialize(V4L2Buffer* avbuf, int index)
     } else {
         avbuf->buf.bytesused = avbuf->planes[0].bytesused;
         avbuf->buf.length    = avbuf->planes[0].length;
+    }
+
+    ret = v4l2_buffer_export(avbuf);
+    if (ret)
+	    return ret;
+
+    if (V4L2_TYPE_IS_MULTIPLANAR(ctx->type)) {
+	avbuf->drm_frame.objects[0].fd = avbuf->buf.m.planes[0].m.fd;
+	avbuf->drm_frame.objects[0].size = avbuf->buf.m.planes[0].length;
+    } else {
+	avbuf->drm_frame.objects[0].fd = avbuf->buf.m.fd;
+	avbuf->drm_frame.objects[0].size = avbuf->buf.length;
     }
 
     return ff_v4l2_buffer_enqueue(avbuf);
@@ -546,27 +563,3 @@ int ff_v4l2_buffer_enqueue(V4L2Buffer* avbuf)
     return 0;
 }
 
-int ff_v4l2_buffer_export(V4L2Buffer* avbuf)
-{
-    int i, ret;
-
-    for (i = 0; i < avbuf->num_planes; i++) {
-
-        struct v4l2_exportbuffer expbuf;
-        memset(&expbuf, 0, sizeof(expbuf));
-        expbuf.type = avbuf->buf.type;
-        expbuf.index = avbuf->buf.index;
-        expbuf.plane = i;
-
-        ret = ioctl(buf_to_m2mctx(avbuf)->fd, VIDIOC_EXPBUF, &expbuf);
-        if (ret < 0)
-            return AVERROR(errno);
-
-        if (V4L2_TYPE_IS_MULTIPLANAR(avbuf->buf.type))
-            avbuf->buf.m.planes[i].m.fd = expbuf.fd;
-        else
-            avbuf->buf.m.fd = expbuf.fd;
-    }
-
-    return 0;
-}
