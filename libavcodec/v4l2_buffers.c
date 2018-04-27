@@ -418,19 +418,45 @@ int ff_v4l2_buffer_avframe_to_buf(const AVFrame *frame, V4L2Buffer* out)
 int ff_v4l2_buffer_buf_to_avframe(AVFrame *frame, V4L2Buffer *avbuf)
 {
     V4L2m2mContext *s = buf_to_m2mctx(avbuf);
-    int ret;
+    int i, ret;
 
     av_frame_unref(frame);
 
-    /* 1. get references to the actual data */
-    ret = v4l2_buf_to_bufref_drm(avbuf, &frame->buf[0]);
-    if (ret)
-	    return ret;
-    frame->data[0] = (uint8_t *) v4l2_get_drm_frame(avbuf);
+    if (buf_to_m2mctx(avbuf)->drm) {
+
+        /* 1. get references to the actual data */
+        ret = v4l2_buf_to_bufref_drm(avbuf, &frame->buf[0]);
+        if (ret)
+            return ret;
+        frame->data[0] = (uint8_t *) v4l2_get_drm_frame(avbuf);
+        frame->format = AV_PIX_FMT_DRM_PRIME;
+    } else {
+        /* 1. get references to the actual data */
+        for (i = 0; i < avbuf->num_planes; i++) {
+            ret = v4l2_buf_to_bufref(avbuf, i, &frame->buf[i]);
+            if (ret)
+                return ret;
+
+            frame->linesize[i] = avbuf->plane_info[i].bytesperline;
+            frame->data[i] = frame->buf[i]->data;
+        }
+
+        /* 1.1 fixup special cases */
+        switch (avbuf->context->av_pix_fmt) {
+        case AV_PIX_FMT_NV12:
+            if (avbuf->num_planes > 1)
+                break;
+            frame->linesize[1] = avbuf->plane_info[0].bytesperline;
+            frame->data[1] = frame->buf[0]->data + avbuf->plane_info[0].bytesperline *
+                avbuf->context->format.fmt.pix_mp.height;
+            break;
+        default:
+            break;
+        }
+        frame->format = avbuf->context->av_pix_fmt;
+    }
 
     /* 2. get frame information */
-    frame->format = AV_PIX_FMT_DRM_PRIME;
-
     frame->key_frame = !!(avbuf->buf.flags & V4L2_BUF_FLAG_KEYFRAME);
     frame->color_primaries = v4l2_get_color_primaries(avbuf);
     frame->colorspace = v4l2_get_color_space(avbuf);
@@ -546,29 +572,32 @@ int ff_v4l2_buffer_initialize(V4L2Buffer* avbuf, int index)
 
     avbuf->status = V4L2BUF_AVAILABLE;
 
+    if (V4L2_TYPE_IS_MULTIPLANAR(ctx->type)) {
+        avbuf->buf.m.planes = avbuf->planes;
+        avbuf->buf.length   = avbuf->num_planes;
+    } else {
+        avbuf->buf.bytesused = avbuf->planes[0].bytesused;
+        avbuf->buf.length    = avbuf->planes[0].length;
+    }
+
     if (V4L2_TYPE_IS_OUTPUT(ctx->type)) {
 	avbuf->drm_frame.objects[0].fd = -1;
         return 0;
     }
 
-    ret = v4l2_buffer_export(avbuf);
-    if (ret)
-	    return ret;
+    if (buf_to_m2mctx(avbuf)->drm) {
 
-    if (V4L2_TYPE_IS_MULTIPLANAR(ctx->type)) {
-        avbuf->buf.m.planes = avbuf->planes;
-        avbuf->buf.length   = avbuf->num_planes;
+        ret = v4l2_buffer_export(avbuf);
+        if (ret)
+                return ret;
 
-        /* drm information */
-	avbuf->drm_frame.objects[0].fd = avbuf->buf.m.planes[0].m.fd;
-	avbuf->drm_frame.objects[0].size = avbuf->buf.m.planes[0].length;
-    } else {
-        avbuf->buf.bytesused = avbuf->planes[0].bytesused;
-        avbuf->buf.length    = avbuf->planes[0].length;
-
-        /* drm information */
-	avbuf->drm_frame.objects[0].fd = avbuf->buf.m.fd;
-	avbuf->drm_frame.objects[0].size = avbuf->buf.length;
+        if (V4L2_TYPE_IS_MULTIPLANAR(ctx->type)) {
+            avbuf->drm_frame.objects[0].fd = avbuf->buf.m.planes[0].m.fd;
+            avbuf->drm_frame.objects[0].size = avbuf->buf.m.planes[0].length;
+        } else {
+            avbuf->drm_frame.objects[0].fd = avbuf->buf.m.fd;
+            avbuf->drm_frame.objects[0].size = avbuf->buf.length;
+        }
     }
 
     return ff_v4l2_buffer_enqueue(avbuf);

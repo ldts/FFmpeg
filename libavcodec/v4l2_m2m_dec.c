@@ -184,6 +184,9 @@ static av_cold int v4l2_decode_init(AVCodecContext *avctx)
     capture->av_codec_id = AV_CODEC_ID_RAWVIDEO;
     capture->av_pix_fmt = avctx->pix_fmt;
 
+    if (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME)
+        s->drm = 1;
+
     ret = ff_v4l2_m2m_codec_init(avctx);
     if (ret) {
         av_log(avctx, AV_LOG_ERROR, "can't configure decoder\n");
