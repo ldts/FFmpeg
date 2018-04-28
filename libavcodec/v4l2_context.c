@@ -400,17 +400,25 @@ static int v4l2_release_buffers(V4L2Context* ctx)
     for (i = 0; i < ctx->num_buffers; i++) {
         V4L2Buffer *buffer = &ctx->buffers[i];
 
-	/* close the DRM */
-	if (buffer->drm_frame.objects[0].fd >= 0) {
-	    close(buffer->drm_frame.objects[0].fd);
-	    buffer->drm_frame.objects[0].fd = -1;
-	}
-
         for (j = 0; j < buffer->num_planes; j++) {
             struct V4L2Plane_info *p = &buffer->plane_info[j];
+
+            if (V4L2_TYPE_IS_MULTIPLANAR(buffer->buf.type)) {
+                if (buffer->drm_frame.objects[i].fd >= 0) {
+                    close(buffer->drm_frame.objects[i].fd);
+                    buffer->drm_frame.objects[i].fd = -1;
+                }
+            } else {
+                if (buffer->drm_frame.objects[0].fd >= 0) {
+                    close(buffer->drm_frame.objects[0].fd);
+                    buffer->drm_frame.objects[0].fd = -1;
+                }
+            }
+
             if (p->mm_addr && p->length)
                 if (munmap(p->mm_addr, p->length) < 0)
-                    av_log(logger(ctx), AV_LOG_ERROR, "%s unmap plane (%s))\n", ctx->name, av_err2str(AVERROR(errno)));
+                    av_log(logger(ctx), AV_LOG_ERROR, "%s unmap plane (%s))\n",
+                        ctx->name, av_err2str(AVERROR(errno)));
         }
     }
 
