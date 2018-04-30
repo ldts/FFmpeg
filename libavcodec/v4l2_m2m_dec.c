@@ -184,6 +184,12 @@ static av_cold int v4l2_decode_init(AVCodecContext *avctx)
     capture->av_codec_id = AV_CODEC_ID_RAWVIDEO;
     capture->av_pix_fmt = avctx->pix_fmt;
 
+    /* the client requests the codec to generate DRM frames:
+     *   - data[0] will therefore point to the returned AVDRMFrameDescriptor
+     *       check the ff_v4l2_buffer_to_avframe conversion function.
+     *   - the DRM frame format is passed in the DRM frame descriptor layer.
+     *       check the v4l2_get_drm_frame function.
+     */
     if (avctx->pix_fmt == AV_PIX_FMT_DRM_PRIME)
         s->output_drm = 1;
 

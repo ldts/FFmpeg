@@ -403,16 +403,10 @@ static int v4l2_release_buffers(V4L2Context* ctx)
         for (j = 0; j < buffer->num_planes; j++) {
             struct V4L2Plane_info *p = &buffer->plane_info[j];
 
-            if (V4L2_TYPE_IS_MULTIPLANAR(buffer->buf.type)) {
-                if (buffer->drm_frame.objects[i].fd >= 0) {
+            if (ctx_to_m2mctx(ctx)->output_drm) {
+                /* use the DRM frame to close */
+                if (buffer->drm_frame.objects[i].fd >= 0)
                     close(buffer->drm_frame.objects[i].fd);
-                    buffer->drm_frame.objects[i].fd = -1;
-                }
-            } else {
-                if (buffer->drm_frame.objects[0].fd >= 0) {
-                    close(buffer->drm_frame.objects[0].fd);
-                    buffer->drm_frame.objects[0].fd = -1;
-                }
             }
 
             if (p->mm_addr && p->length)
