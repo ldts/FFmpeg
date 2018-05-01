@@ -23,12 +23,17 @@
 
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
+
+#include "libavutil/hwcontext.h"
 #include "libavutil/hwcontext_drm.h"
 #include "libavutil/pixfmt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/opt.h"
 #include "libavcodec/avcodec.h"
 #include "libavcodec/decode.h"
+
+#include "libavcodec/hwaccel.h"
+#include "libavcodec/internal.h"
 
 #include "v4l2_context.h"
 #include "v4l2_m2m.h"
@@ -212,6 +217,11 @@ static const AVOption options[] = {
     { NULL},
 };
 
+static const AVCodecHWConfigInternal *v4l2_m2m_hw_configs[] = {
+    HW_CONFIG_INTERNAL(DRM_PRIME),
+    NULL
+};
+
 #define M2MDEC_CLASS(NAME) \
     static const AVClass v4l2_m2m_ ## NAME ## _dec_class = { \
         .class_name = #NAME "_v4l2_m2m_decoder", \
@@ -235,6 +245,7 @@ static const AVOption options[] = {
         .pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_DRM_PRIME, \
                                                          AV_PIX_FMT_NONE}, \
         .bsfs           = bsf_name, \
+        .hw_configs     = v4l2_m2m_hw_configs, \
         .capabilities   = AV_CODEC_CAP_HARDWARE | AV_CODEC_CAP_DELAY, \
         .wrapper_name   = "v4l2m2m", \
     };
