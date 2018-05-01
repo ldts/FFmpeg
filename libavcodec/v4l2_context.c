@@ -428,9 +428,17 @@ unmap:
     }
 
     ret = ioctl(ctx_to_m2mctx(ctx)->fd, VIDIOC_REQBUFS, &req);
-    if (ret < 0)
-            av_log(logger(ctx), AV_LOG_ERROR, "release all %s buffers (errno:%d, %s)\n",
-                ctx->name, errno, av_err2str(AVERROR(errno)));
+    if (ret < 0) {
+            av_log(logger(ctx), AV_LOG_ERROR, "release all %s buffers (%s)\n",
+                ctx->name, av_err2str(AVERROR(errno)));
+
+            if (ctx_to_m2mctx(ctx)->output_drm)
+                av_log(logger(ctx), AV_LOG_ERROR,
+                    "Make sure the DRM client releases all FB/GEM objects before closing the codec (ie):\n"
+                    "for all buffers: \n"
+                    "  1. drmModeRmFB(..)\n"
+                    "  2. drmIoctl(.., DRM_IOCTL_GEM_CLOSE,... )\n");
+    }
 
     return ret;
 }
