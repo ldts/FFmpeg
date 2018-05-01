@@ -597,12 +597,8 @@ int ff_v4l2_buffer_initialize(V4L2Buffer* avbuf, int index)
         avbuf->buf.length    = avbuf->planes[0].length;
     }
 
-    if (V4L2_TYPE_IS_OUTPUT(ctx->type)) {
-	avbuf->drm_frame.objects[0].fd = -1;
-
-        /* dont enqueue the buffer */
+    if (V4L2_TYPE_IS_OUTPUT(ctx->type))
         return 0;
-    }
 
     if (buf_to_m2mctx(avbuf)->output_drm) {
         ret = v4l2_buffer_export_drm(avbuf);

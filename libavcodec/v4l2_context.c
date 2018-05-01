@@ -393,7 +393,7 @@ static int v4l2_release_buffers(V4L2Context* ctx)
     struct v4l2_requestbuffers req = {
         .memory = V4L2_MEMORY_MMAP,
         .type = ctx->type,
-        .count = 0, /* 0 -> unmaps buffers from the driver */
+        .count = 0, /* 0 -> unmap all buffers from the driver */
     };
     int ret, i, j;
 
@@ -403,12 +403,23 @@ static int v4l2_release_buffers(V4L2Context* ctx)
         for (j = 0; j < buffer->num_planes; j++) {
             struct V4L2Plane_info *p = &buffer->plane_info[j];
 
-            if (ctx_to_m2mctx(ctx)->output_drm) {
-                /* use the DRM frame to close */
-                if (buffer->drm_frame.objects[i].fd >= 0)
-                    close(buffer->drm_frame.objects[i].fd);
+            if (V4L2_TYPE_IS_OUTPUT(ctx->type)) {
+                /* output buffers are not EXPORTED */
+                goto unmap;
             }
 
+            if (ctx_to_m2mctx(ctx)->output_drm) {
+                /* use the DRM frame to close */
+                if (buffer->drm_frame.objects[j].fd >= 0) {
+                    if (close(buffer->drm_frame.objects[j].fd) < 0) {
+                        av_log(logger(ctx), AV_LOG_ERROR, "%s close drm fd "
+                            "[buffer=%2d, plane=%d, fd=%2d] - %s \n",
+                            ctx->name, i, j, buffer->drm_frame.objects[j].fd,
+                            av_err2str(AVERROR(errno)));
+                    }
+                }
+            }
+unmap:
             if (p->mm_addr && p->length)
                 if (munmap(p->mm_addr, p->length) < 0)
                     av_log(logger(ctx), AV_LOG_ERROR, "%s unmap plane (%s))\n",
@@ -418,7 +429,8 @@ static int v4l2_release_buffers(V4L2Context* ctx)
 
     ret = ioctl(ctx_to_m2mctx(ctx)->fd, VIDIOC_REQBUFS, &req);
     if (ret < 0)
-	    av_log(logger(ctx), AV_LOG_ERROR, "release buffer errno (%d)\n", errno);
+            av_log(logger(ctx), AV_LOG_ERROR, "release all %s buffers (errno:%d, %s)\n",
+                ctx->name, errno, av_err2str(AVERROR(errno)));
 
     return ret;
 }
